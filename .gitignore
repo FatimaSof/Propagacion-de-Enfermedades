@@ -1,0 +1,10 @@
+build/
+out/
+.vs/
+
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+.CMakeLists.user*
+CMakeUserPresets.json
