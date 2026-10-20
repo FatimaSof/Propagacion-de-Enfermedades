@@ -3,34 +3,37 @@
 #include <vector>
 #include <random>
 #include <ctime>
+#include <cstdlib>
 
 using namespace std;
 
-/*Explicacion de que hace cada cosa :
-primero cree la clase persona la cual podras modificar para agregarle mas variables,
-como lo de si esta infectado o no. Tambien esta la clase malla, que es la cuadricula que se dibuja en la ventana.
-En la clase persona para hacer el movimiento genero un numero aleatorio del 0  al 4,
-y luego por medio del switch hice que la figura mueva su coordenada. La clase malla no la toques
-por que solo yo y chatgpt sabiamos lo que haciamos en ese momento con todos esos vectores :v
-La funcion direccion elegida es la que me genera el numero aleatorio.
-Luego esta el main y ahi cree por mientras 3 personas (bolitas) ya que lo tengamos mas avanzado
-a recomendacion de mi patron chatsito metamos lo de la interfaz. luego se crea el reloj para hacer
-el movimiento por que si no es demasiado rapido y no se veria como se mueven. Y por ultimo se dibuja
-intente meter a todas las personas dentro de un vector para que sea mas sencillo al final y no estar
-dibujando uno por uno, al final solo se recorre el vector personas. y listo uwu
+/*Avance 19/10/2026 hecho por Fatima:
+Agregue que las bolitas no se puedan encimar en la misma celda
+El estado de salud de las bolitas
+Las bolitas aparecen en celdas aleatorias y ya no las tenemos que crear manualmente
+
+
 */
 
-
+enum class EstadoSalud {
+    Suceptible, Infectado, Recuperado
+};
 
 int direccionElegida(); //declaro la funcion para que no marque error
+float numeroProb();
+
+
 
 class Persona { //clase persona
 private:
     sf::CircleShape forma;
+    sf::Time momentoContagio;
     int celdaX;          // columna actual en la malla
     int celdaY;          // fila actual en la malla
     int ultimaDireccion; // 0=arriba,1=abajo,2=izq,3=der, -1=ninguna
     std::vector<pair<int, int>> historial; // últimas celdas visitadas
+
+    EstadoSalud estadoSalud;
 
     static constexpr int TAMANO_CELDA = 50;
     static constexpr int MAX_HISTORIAL = 5;
@@ -53,24 +56,72 @@ private:
     }
 
 public:
-    Persona(int col, int fila) : celdaX(col), celdaY(fila), ultimaDireccion(-1) {
-        forma.setRadius(10.f);
+    Persona(int col, int fila) : celdaX(col), celdaY(fila), ultimaDireccion(-1), estadoSalud(EstadoSalud::Suceptible) {
+        forma.setRadius(15.f);
         forma.setFillColor(sf::Color::Green);
-        forma.setOrigin({ 10.f, 10.f });
+        forma.setOrigin({ 15.f, 15.f });
         forma.setPosition(celdaAPixeles(col, fila));
         historial.push_back({ col, fila });
     }
+
+	int getCeldaX() const { 
+        return celdaX; 
+    }
+
+	int getCeldaY() const {
+		return celdaY;
+	}
+
 
     void dibujar(sf::RenderWindow& window) {
         window.draw(forma);
     }
 
-    void moverAleatoriamente() {
+    void infectar(sf::Time tiempoAct) {
+        if (estadoSalud != EstadoSalud::Suceptible) {
+            return;
+        }
+
+		estadoSalud = EstadoSalud::Infectado;
+		momentoContagio = tiempoAct;
+		actualizarColor();
+    }
+
+    void actSalud(sf::Time tiempoAct) {
+        if (estadoSalud == EstadoSalud::Infectado) {
+            if (tiempoAct - momentoContagio >= sf::seconds(10.f)) {
+                estadoSalud = EstadoSalud::Recuperado;
+                actualizarColor();
+            }
+        }
+    }
+
+	bool estaInfectado() const {
+		return estadoSalud == EstadoSalud::Infectado;
+	}
+
+
+
+    void moverAleatoriamente(const std::vector<Persona>& personas, int indiceActual) {
         // Direcciones: 0=arriba,1=abajo,2=izq,3=der
         const int dx[4] = { 0,  0, -1,  1 };
         const int dy[4] = { -1,  1,  0,  0 };
 
         std::vector<int> opciones;
+
+        auto ocupada = [&](int col, int fila) {
+            for (int i = 0; i < personas.size(); i++) {
+                if (i == indiceActual) {
+                    continue;
+                }
+                if (personas[i].getCeldaX() == col && personas[i].getCeldaY() == fila) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+
 
         for (int d = 0; d < 4; d++) {
             // No deshacer el último paso (evita ir y volver)
@@ -81,7 +132,7 @@ public:
             int nf = celdaY + dy[d];
 
             if (!celdaValida(nc, nf)) continue;
-
+			if (ocupada(nc, nf)) continue;
             // Evitar celdas visitadas recientemente
             if (estaEnHistorial(nc, nf)) continue;
 
@@ -95,6 +146,7 @@ public:
                 int nc = celdaX + dx[d];
                 int nf = celdaY + dy[d];
                 if (!celdaValida(nc, nf)) continue;
+                if (ocupada(nc, nf)) continue;
                 if (estaEnHistorial(nc, nf)) continue;
                 opciones.push_back(d);
             }
@@ -106,7 +158,10 @@ public:
             for (int d = 0; d < 4; d++) {
                 int nc = celdaX + dx[d];
                 int nf = celdaY + dy[d];
-                if (celdaValida(nc, nf)) opciones.push_back(d);
+                if (!celdaValida(nc, nf)) continue;
+                if (ocupada(nc, nf)) continue;
+
+                opciones.push_back(d);
             }
         }
 
@@ -129,6 +184,51 @@ public:
         if (historial.size() > MAX_HISTORIAL)
             historial.erase(historial.begin());
     }
+
+    void actualizarColor() {
+        if (estadoSalud == EstadoSalud::Suceptible) {
+			forma.setFillColor(sf::Color::Green);
+
+		}
+		else if (estadoSalud == EstadoSalud::Infectado) {
+			forma.setFillColor(sf::Color::Red);
+		}
+		else if (estadoSalud == EstadoSalud::Recuperado) {
+			forma.setFillColor(sf::Color(150,150,150));
+		}
+    }
+
+
+    void intentoContagio(std::vector<Persona>& personas, int indiceActual, float probabilidad, sf::Time tiempoActual) {
+        if (estadoSalud != EstadoSalud::Infectado) {
+            return;
+        }
+        for (int i = 0; i < personas.size(); i++) {
+			if (i == indiceActual) {
+				continue;
+            }
+
+			int diferenciaX = abs(celdaX - personas[i].getCeldaX());
+			int diferenciaY = abs(celdaY - personas[i].getCeldaY());
+
+            if (diferenciaX + diferenciaY != 1) {
+				continue; 
+            }
+
+            if (personas[i].estadoSalud != EstadoSalud::Suceptible) {
+                continue;
+            }
+
+			float numeroRandom = numeroProb();
+
+            if (numeroRandom < probabilidad) {
+				personas[i].infectar(tiempoActual);
+            }
+        }
+    }
+
+    
+
 };
 
 class Malla {
@@ -170,6 +270,16 @@ public:
     }
 
 };
+
+
+float numeroProb() {
+    std::random_device rd;
+    std::mt19937 generador(rd());
+    std::uniform_real_distribution<float> sorteo(0.0f, 100.0f);
+
+    return sorteo(generador);
+
+}
 int direccionElegida() { //funcion que genera un numero aleatorio entre 0 y 3, que seran las direcciones
     std::random_device rd; //prepara el generador de numeros aleatorios
     std::mt19937 generador(rd()); //crea un generador de numeros aleatorios
@@ -179,7 +289,32 @@ int direccionElegida() { //funcion que genera un numero aleatorio entre 0 y 3, q
     return direccion(generador);
 }
 
+void crearPersonasAleatorias(std::vector<Persona>& personas, int cantidadPersonas) {
+    std::random_device rd;
+    std::mt19937 generador(rd());
 
+    std::uniform_int_distribution<int> columna(0, 15);
+    std::uniform_int_distribution<int> fila(0, 11);
+
+    while (personas.size() < cantidadPersonas) {
+        int x = columna(generador);
+        int y = fila(generador);
+
+        bool ocupada = false;
+
+        for (int i = 0; i < personas.size(); i++) {
+            if (personas[i].getCeldaX() == x &&
+                personas[i].getCeldaY() == y) {
+                ocupada = true;
+                break;
+            }
+        }
+
+        if (!ocupada) {
+            personas.emplace_back(x, y);
+        }
+    }
+}
 
 
 
@@ -189,14 +324,13 @@ int main()
     sf::RenderWindow window(sf::VideoMode({ 800, 600 }), "Propagacion de Enfermedades");
 
 	std::vector<Persona> personas;
-    sf::Clock reloj;
+    sf::Clock reloj, relojSalud;
 	Malla malla(800.f, 600.f, 50.f);
+	int cantidadPersonas = 20; // Cambia este valor para crear más o menos personas
+    float probContagio = 50.f;
 
-    personas.emplace_back(2, 2); // columna 2, fila 2 (celda del centro)
-    personas.emplace_back(3, 2);
-    personas.emplace_back(4, 2); 
-
-
+	crearPersonasAleatorias(personas, cantidadPersonas);
+	personas[0].infectar(relojSalud.getElapsedTime()); // Infectar la primera persona al inicio
 
     while (window.isOpen())
     {
@@ -206,11 +340,18 @@ int main()
                 window.close();
         }
 
-        
+		sf::Time tiempoActual = relojSalud.getElapsedTime();
+
 		if (reloj.getElapsedTime().asMilliseconds() >= 500) {
 			for (int i = 0; i < personas.size(); i++) {
-				personas[i].moverAleatoriamente();
+				personas[i].actSalud(tiempoActual);
 			}
+            for (int i = 0; i < personas.size(); i++) {
+				personas[i].intentoContagio(personas, i, probContagio, tiempoActual);
+            }
+            for (int i = 0; i < personas.size(); i++) {
+				personas[i].moverAleatoriamente(personas, i);
+            }
 			reloj.restart();
 
 		}
